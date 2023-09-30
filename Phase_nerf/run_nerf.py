@@ -6,7 +6,7 @@ import imageio
 from tensorboardX import SummaryWriter
 
 from NeRF import *
-from load_data import load_phase_data
+from load_data import load_phase_data,pixel2position
 from run_nerf_helpers import *
 from metrics import compute_img_metric
 
@@ -403,6 +403,7 @@ def train(arg):
     if args.camera_dataset_type == 'phase':
         #load data including images and illuminate source location
         image,light_loc,ids=load_phase_data(args.data_path)
+
         print('Loaded phase_data',ids, image.shape, light_loc.shape)
         H, W= image.shape[0], image.shape[1]
     else:
@@ -412,36 +413,40 @@ def train(arg):
     #Calculate the direction for each light ray
     #But we need to transfer them into the same coordinate
     #re-arrange the data from [image,illuminate location]
-    #into [pixel(3), direction(3), id(1)] where the id is the image serial naumber
-    data=np.zero(7,H*W*ids)
+    #into [pixel_position(2), direction(3), intensity_pixel(1), intensity_light(1),id(1)] where the id is the image serial naumber
+    light_intensity=1
+    data=np.zero(H*W*ids,7)
     num=0
     for k in range(ids):
         for i in range(H):
             for j in range(W):
-                data[:,num]=pixel2position(image[k,i,j,:],light_loc[k])
-                data[6,num]=k
+                data[num,0]=i
+                data[num,1]=j
+                data[num,2]=light_loc[k][0]
+                data[num,3]=light_loc[k][1]
+                data[num,4]=image[k,i,j,:]
+                data[num,5]=light_intensity
+                data[num,6]=k
                 num+=1
 
     #divided the data in to test and train
-    #need complement
-    train_phase,test_phase=Data_shuffle()
+    print('shuffle rays')
+    shuffle_data=np.zero(H*W*ids,7)
+    shuffle_idx = np.random.permutation(data.shape[0])
+    for i in range(data.shape[1]):
+        shuffle_data[i]=data[shuffle_idx[i]]
 
 
-    # Define The Phase Model
-
-    if args.camera_type == 'phasenerf':
-        phase_model = phasenerf(args)
-    else:
-        raise RuntimeError(f"camera_type {args.camera_type} not recognized")
 
     # Create nerf model
-    nerf = NPRF(args, camera_model=camera_model, camera_mode=True)
+    nerf = NPRF(args)
     nerf = nn.DataParallel(nerf, list(range(args.num_gpu)))
     optim_params = nerf.parameters()
     optimizer = torch.optim.Adam(params=optim_params, lr=args.lrate, betas=(0.9, 0.999))
-    start = 0
+
 
     # Load Checkpoints
+    start = 0
     if args.ft_path is not None and args.ft_path != 'None':
         ckpts = [args.ft_path]
     else:
@@ -452,96 +457,55 @@ def train(arg):
         ckpt_path = ckpts[-1]
         print('Reloading from', ckpt_path)
         ckpt = torch.load(ckpt_path)
-
         start = ckpt['global_step']
         optimizer.load_state_dict(ckpt['optimizer_state_dict'])
         # Load model
         smart_load_state_dict(nerf, ckpt)
-
-    ###########9.25################
-
-    # figuring out the train/test configuration
-    render_kwargs_train = {
-        'perturb': args.perturb,
-        'N_importance': args.N_importance,
-        'N_samples': args.N_samples,
-        'use_viewdirs': args.use_viewdirs,
-        'white_bkgd': args.white_bkgd,
-        'raw_noise_std': args.raw_noise_std,
-    }
-    # # NDC only good for LLFF-style forward facing data
-    # if args.no_ndc:  # args.dataset_type != 'llff' or
-    #     print('Not ndc!')
-    #     render_kwargs_train['ndc'] = False
-    #     render_kwargs_train['lindisp'] = args.lindisp
-    # render_kwargs_test = {k: render_kwargs_train[k] for k in render_kwargs_train}
-    # render_kwargs_test['perturb'] = False
-    # render_kwargs_test['raw_noise_std'] = 0.
-
-    # visualize_motionposes(H, W, K, nerf, 2)
-    # visualize_kernel(H, W, K, nerf, 5)
-    # visualize_itsample(H, W, K, nerf)
-    # visualize_kmap(H, W, K, nerf, img_idx=1)
-
-
-
     global_step = start
 
-    # Move testing data to GPU
 
+
+
+    # Move data to GPU
     nerf = nerf.cuda()
-    train_phase_cuda = torch.tensor(train_phase).cuda()
-    test_phase_cuda = torch.tensor(test_phase).cuda()
 
     # Short circuit if only rendering out from trained model
     if args.camera_render_only:
         print('RENDER ONLY')
         ############### implementation needed############
+        pass
 
     # ============================================
-    # Prepare ray dataset if batching random rays
+    # Prepare grids dataset for one points
     # ============================================
-    N_rand = args.N_rand
-    train_datas = {}
+
+    #batch=args.batch_size
+    #N_sample=args.N_sample
+    batch=10
+    N_sample=2000
+
     camera_train_datas = {}
     camera_test_datas = {}
 
-    # nerf datas processing
-    train_datas, imagesf = data_process(args, train_datas, images, i_train, H, W, K, poses)
-    print('shuffle rays')
-    shuffle_idx = np.random.permutation(len(train_datas['rays']))
-    train_datas = {k: v[shuffle_idx] for k, v in train_datas.items()}
-    print('done')
-
     # camera-nerf datas processing
-    camera_train_datas, camera_test_datas, camera_AIFROI, focus_imagessf, depthssf, AIF_imagesf = camera_data_process(
-        args, camera_train_datas, camera_test_datas,
-        focus_images, depths, AIFs,AIF_image, fd, ids,i_train_camera)
-    print('shuffle camera rays (train)')
-    camera_shuffle_idx = np.random.permutation(len(camera_train_datas['camera_rays']))
-    camera_train_datas = {k: v[camera_shuffle_idx] for k, v in camera_train_datas.items() if 'camera' in k}
-    print('done')
+
+    pre_data=phase_data_process(shuffle_data)
+
+    train_data=pre_data[0:int(0.9*data.shape[1]),:]
+    test_data = pre_data[int(0.9 * data.shape[1]):, :]
 
     i_batch = 0
 
     # Move training data to GPU
     # images = torch.tensor(images).cuda()
     # imagesf = torch.tensor(imagesf).cuda()
-    # focus_images = torch.tensor(focus_images).cuda()
-    # focus_imagessf = torch.tensor(focus_imagessf).cuda()
-    # depths = torch.tensor(depths).cuda()
-    # depthssf = torch.tensor(depthssf).cuda()
-    # AIF_image = torch.tensor(AIF_image).cuda()
-    # AIF_imagesf = torch.tensor(AIF_imagesf).cuda()
 
-    poses = torch.tensor(poses).cuda()
-    train_datas = {k: torch.tensor(v).cuda() for k, v in train_datas.items()}
-    camera_train_datas = {k: torch.tensor(v).cuda() for k, v in camera_train_datas.items()}
-    camera_test_datas = {k: torch.tensor(v).cuda() for k, v in camera_test_datas.items()}
-    camera_AIFROI = {k: torch.tensor(v).cuda() for k, v in camera_AIFROI.items()}
+
+
     # camera_AIFROI = torch.tensor(camera_AIFROI).cuda()
 
     N_iters = args.N_iters + 1
+
     print('Begin')
     print('TRAIN views(NeRF) are', i_train, '\tTRAIN views(Camera NeRF) are', i_train_camera)
     print('TEST views(NeRF) are', i_test, '\tTEST views(Camera NeRF) are', i_test_camera)
@@ -558,8 +522,6 @@ def train(arg):
         #         print("文件存在")
         #         print(global_step)
         #         return 0
-
-
 
         # Sample random ray batch
         iter_data = {k: v[i_batch:i_batch + N_rand] for k, v in train_datas.items()}
@@ -584,16 +546,13 @@ def train(arg):
         #     torch.cuda.empty_cache()
         with torch.autograd.set_detect_anomaly(True):
             #previous
-            rgb1, rgb2, rgb3 = nerf(H, W, K, chunk=args.chunk,
-                                         rays=batch_rays, rays_info=iter_data, camera_rays_info=camera_iter_data,
-                                         camera_AIF=camera_AIFROI,
-                                         retraw=True, **render_kwargs_train)
+
 
 
             #katz 0928
 
 
-            RI,intensity_pred=nerf(chunk=args.chunk, rays=batch_rays retraw=True, **render_kwargs_train)
+            RI,intensity_pred=nerf(chunk=args.chunk, rays=batch_rays, retraw=True, **render_kwargs_train)
 
             # Compute Losses
             # =====================

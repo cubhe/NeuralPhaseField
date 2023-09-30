@@ -341,18 +341,66 @@ def get_large_data(path,target_path):
     cv2.imwrite(os.path.join(target_path,"AIF_4/image000.png"),AIF)
     print(img_list)
     # shutil.copy(focus_path_dir + "/" + focus, new_focus_path + "/" + focus)
+def fit_largest_circle(image):
 
+    #image=cv2.normalize(image, None, 0,255,cv2.NORM_MINMAX)
+
+    image=(image/np.max(image)*255).astype('uint8')
+    cv2.imshow('test1',image)
+    cv2.waitKey(10)
+    image=cv2.blur(image,(10,10))
+    thre=10
+    image[image>thre]=255
+    image[image<thre]=0
+
+    cv2.imshow('test2',image)
+    cv2.waitKey(10)
+    # 边缘检测
+    edges = cv2.Canny(image, 40, 180)
+    cv2.imshow('test3',edges)
+    cv2.waitKey(10)
+    # 检测圆
+    circles = cv2.HoughCircles(edges, cv2.HOUGH_GRADIENT, dp=1, minDist=100, param1=10, param2=80, minRadius=20, maxRadius=400)
+    print(circles)
+    # 绘制圆
+    if circles is not None:
+        circles = np.round(circles[0, :]).astype("int")
+        for (x, y, r) in circles:
+            cv2.circle(image, (x, y), r, (255, 255, 255), 4)
+
+    # 显示结果
+    cv2.imshow("Detected Circles", image)
+    cv2.waitKey(0)
+def detect_illu_location(image):
+    fit_largest_circle(image)
+    pass
 def load_phase_data(path):
     #images=cv2.imread(path)
     #print(images.shape)
     data = tifffile.imread(path)
     #print(data.shape)
     #print(data[0,0,0],type(data[0,0,0]))
+    locations=np.zeros((data.shape[0],3))#[N,(x,y,z)] z=0
     for i in range(data.shape[0]):
         img=data[i]
         cv2.imshow('test',10*cv2.resize(img,None,fx=0.3,fy=0.3))
         cv2.waitKey(200)
+        img=10*cv2.resize(img,None,fx=0.3,fy=0.3)
+        locations[i]=detect_illu_location(img)
+    return data,locations,data.shape[0]
+def pixel2position(pixel,light):
+    return np.array(pixel)
+    pass
+def phase_data_process(data,N_point,N_sample):
+    #input is (N_point,7) 7-->(x_p,y_p,x_i,y_i,z_i,I_p,I_i)
+    #output is
+    #training data: (N_point,N_sample,7) 7-->(x_g,y_g,z_g,x_i,y_i,z_i,I_i)
+    #intensity of the pixel I_p
 
+    training_data=np.zeros((N_point,N_sample,7))
+    intensity_p=np.zeros(N_point)
+    return training_data,intensity_p
+    pass
 if __name__ == '__main__':
     # num = 307
     # if num<300:
