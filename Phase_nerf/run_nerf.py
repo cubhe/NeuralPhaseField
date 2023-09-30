@@ -435,7 +435,7 @@ def train(arg):
         raise RuntimeError(f"camera_type {args.camera_type} not recognized")
 
     # Create nerf model
-    nerf = NeRFAll(args, camera_model=camera_model, camera_mode=True)
+    nerf = NPRF(args, camera_model=camera_model, camera_mode=True)
     nerf = nn.DataParallel(nerf, list(range(args.num_gpu)))
     optim_params = nerf.parameters()
     optimizer = torch.optim.Adam(params=optim_params, lr=args.lrate, betas=(0.9, 0.999))
@@ -558,18 +558,7 @@ def train(arg):
         #         print("文件存在")
         #         print(global_step)
         #         return 0
-        # if global_step//args.i_testset < 2:
-        #     if global_step / args.i_testset == 0:
-        #         print('use mlp_a')
-        #     args.MLP123=1
-        # elif global_step//args.i_testset < 4:
-        #     if global_step / args.i_testset == 2:
-        #         print('use mlp_a and mlp_b')
-        #     args.MLP123 = 2
-        # else:
-        #     if global_step / args.i_testset == 4:
-        #         print('use mlp_a, mlp-b and mlp_c')
-        #     args.MLP123 = 3
+
 
 
         # Sample random ray batch
@@ -602,9 +591,9 @@ def train(arg):
 
 
             #katz 0928
-            intensity=nerf(chunk=args.chunk, rays=batch_rays, rays_info=iter_data, camera_rays_info=camera_iter_data,
-                                          camera_AIF=camera_AIFROI,
-                                         retraw=True, **render_kwargs_train)
+
+
+            RI,intensity_pred=nerf(chunk=args.chunk, rays=batch_rays retraw=True, **render_kwargs_train)
 
             # Compute Losses
             # =====================
@@ -644,116 +633,15 @@ def train(arg):
             }, path)
             print('Saved checkpoints at', path)
 
-        # if i % args.i_video == 0 and i > 0:
-        #     # Turn on testing mode
-        #     with torch.no_grad():
-        #         nerf.eval()
-        #         rgbs, disps = nerf(H, W, K, args.chunk, poses=render_poses, render_kwargs=render_kwargs_test)
-        #     print('Done, saving', rgbs.shape, disps.shape)
-        #     moviebase = os.path.join(basedir, expname, '{}_spiral_{:06d}_'.format(expname, i))
-        #     rgbs = (rgbs - rgbs.min()) / (rgbs.max() - rgbs.min())
-        #     rgbs = rgbs.cpu().numpy()
-        #     disps = disps.cpu().numpy()
-        #     # disps_max_idx = int(disps.size * 0.9)
-        #     # disps_max = disps.reshape(-1)[np.argpartition(disps.reshape(-1), disps_max_idx)[disps_max_idx]]
-        #
-        #     imageio.mimwrite(moviebase + 'rgb.mp4', to8b(rgbs), fps=30, quality=8)
-        #     imageio.mimwrite(moviebase + 'disp.mp4', to8b(disps / disps.max()), fps=30, quality=8)
-
-        # if args.use_viewdirs:
-        #     render_kwargs_test['c2w_staticcam'] = render_poses[0][:3,:4]
-        #     with torch.no_grad():
-        #         rgbs_still, _ = render_path(render_poses, hwf, args.chunk, render_kwargs_test)
-        #     render_kwargs_test['c2w_staticcam'] = None
-        #     imageio.mimwrite(moviebase + 'rgb_still.mp4', to8b(rgbs_still), fps=30, quality=8)
 
         if i % args.i_testset == 0 and i > 0:
             print('Start test')
             test(args, tensorboard, i, nerf, H, W, K, camera_test_datas, camera_AIFROI, render_kwargs_test,
                  i_test_camera, focus_imagessf, global_step, test_metric_file)
 
-        #     #test(args,tensorboard,i,nerf,H,W,K,camera_test_datas,camera_AIFROI,render_kwargs_test,i_test_camera,focus_imagessf,global_step,test_metric_file)
-        # # if i % 2 == 0 and i > 0:
-        #     print('use mlp_',args.MLP123)
-        #     testsavedir = os.path.join(basedir, expname, 'testset_{:06d}'.format(i))
-        #     os.makedirs(testsavedir, exist_ok=True)
-        #     if os.path.isfile(testsavedir+'/paras.npy') is not True or True:
-        #         with torch.no_grad():
-        #             nerf.eval()
-        #             rgbs1, rgbs2,rgbs3,paras = nerf(H, W, K, args.chunk, camera_rays_info=camera_test_datas,
-        #                               camera_AIF=camera_AIFROI,
-        #                               render_kwargs=render_kwargs_test)
-        #             rgbs1_save = rgbs1  # (rgbs - rgbs.min()) / (rgbs.max() - rgbs.min())
-        #             rgbs2_save = rgbs2
-        #             rgbs3_save = rgbs3
-        #             np.save(os.path.join(testsavedir, 'paras.npy'), paras.cpu().numpy())
-        #             # saving
-        #             for rgb_idx, rgb in enumerate(rgbs1_save):
-        #                 rgb8 = to8b(rgb.cpu().numpy())
-        #                 dir = os.path.join(testsavedir, 'rgb1')
-        #                 if not os.path.exists(dir):
-        #                     os.mkdir(dir)
-        #                 filename = os.path.join(dir, f'{rgb_idx:03d}.png')
-        #                 imageio.imwrite(filename, rgb8)
-        #             for rgb_idx, rgb in enumerate(rgbs2_save):
-        #                 rgb8 = to8b(rgb.cpu().numpy())
-        #                 dir = os.path.join(testsavedir, 'rgb2')
-        #                 if not os.path.exists(dir):
-        #                     os.mkdir(dir)
-        #                 filename = os.path.join(dir,f'{rgb_idx:03d}.png')
-        #                 imageio.imwrite(filename, rgb8)
-        #             for rgb_idx, rgb in enumerate(rgbs3_save):
-        #                 rgb8 = to8b(rgb.cpu().numpy())
-        #                 dir = os.path.join(testsavedir, 'rgb3')
-        #                 if not os.path.exists(dir):
-        #                     os.mkdir(dir)
-        #                 filename = os.path.join(dir, f'{rgb_idx:03d}.png')
-        #                 imageio.imwrite(filename, rgb8)
-        #             # evaluation
-        #             rgbs = rgbs1
-        #             rgbs1 = rgbs[i_test_camera]
-        #             rgbs = rgbs2
-        #             rgbs2 = rgbs[i_test_camera]
-        #             rgbs = rgbs3
-        #             rgbs3 = rgbs[i_test_camera]
-        #
-        #             target_rgb_ldr = focus_imagessf[i_test_camera]
-        #
-        #             test_psnr1 = compute_img_metric(rgbs1, target_rgb_ldr, 'psnr')
-        #             test_psnr2 = compute_img_metric(rgbs2, target_rgb_ldr, 'psnr')
-        #             test_psnr3 = compute_img_metric(rgbs3, target_rgb_ldr, 'psnr')
-        #             if i<=4000:
-        #                 rgbs3=rgbs1
-        #                 print('test rgbs1')
-        #             elif i <= 8000:
-        #                 rgbs3 = rgbs2
-        #                 print('test rgbs2')
-        #             else:
-        #                 print('test rgbs3')
-        #             test_mse = compute_img_metric(rgbs3, target_rgb_ldr, 'mse')
-        #             test_ssim = compute_img_metric(rgbs3, target_rgb_ldr, 'ssim')
-        #             test_lpips = compute_img_metric(rgbs3, target_rgb_ldr, 'lpips')
-        #             if isinstance(test_lpips, torch.Tensor):
-        #                 test_lpips = test_lpips.item()
-        #
-        #             tensorboard.add_scalar("Test MSE", test_mse, global_step)
-        #             tensorboard.add_scalar("Test PSNR1", test_psnr1, global_step)
-        #             tensorboard.add_scalar("Test PSNR2", test_psnr2, global_step)
-        #             tensorboard.add_scalar("Test PSNR3", test_psnr3, global_step)
-        #             tensorboard.add_scalar("Test SSIM", test_ssim, global_step)
-        #             tensorboard.add_scalar("Test LPIPS", test_lpips, global_step)
-        #
-        #         with open(test_metric_file, 'a') as outfile:
-        #             outfile.write(f"iter{i}/globalstep{global_step}: MSE:{test_mse:.8f} PSNR1:{test_psnr1:.8f} PSNR2:{test_psnr2:.8f} PSNR3:{test_psnr3:.8f}"
-        #                           f" SSIM:{test_ssim:.8f} LPIPS:{test_lpips:.8f}\n")
-        #         print('Saved test set')
-        #     else:
-        #         print("参数文件存在")
         if i % args.i_tensorboard == 0:
             tensorboard.add_scalar("Loss", loss.item(), global_step/args.MLP123)
-            tensorboard.add_scalar("PSNR1", psnr1.item(), global_step)
-            tensorboard.add_scalar("PSNR2", psnr2.item(), global_step)
-            tensorboard.add_scalar("PSNR3", psnr3.item(), global_step)
+            tensorboard.add_scalar("PSNR", psnr1.item(), global_step)
             # for k, v in extra_loss.items():
             #     tensorboard.add_scalar(k, v.item(), global_step)
 

@@ -3,6 +3,7 @@ import cv2
 import numpy as np
 import os, imageio
 import shutil
+import tifffile
 
 
 def _minify(basedir, factors=[], resolutions=[]):
@@ -341,6 +342,17 @@ def get_large_data(path,target_path):
     print(img_list)
     # shutil.copy(focus_path_dir + "/" + focus, new_focus_path + "/" + focus)
 
+def load_phase_data(path):
+    #images=cv2.imread(path)
+    #print(images.shape)
+    data = tifffile.imread(path)
+    #print(data.shape)
+    #print(data[0,0,0],type(data[0,0,0]))
+    for i in range(data.shape[0]):
+        img=data[i]
+        cv2.imshow('test',10*cv2.resize(img,None,fx=0.3,fy=0.3))
+        cv2.waitKey(200)
+
 if __name__ == '__main__':
     # num = 307
     # if num<300:
@@ -352,5 +364,5 @@ if __name__ == '__main__':
     #                  "/home/irvlab/heka/Project3_NeRF/code/camera_nerf/dataset/allin3d2", num,
     #                  is_more_focus=False, focus_list=list(range(0,200,10)))
     # img_depth_resize("/home/irvlab/heka/Project3_NeRF/code/camera_nerf/dataset/allin3d2/{}".format(num), 4)
-
-    get_large_data("/media/irvlab/新加卷1/4","/home/irvlab/heka/Project3_NeRF/code/camera_nerf/dataset/allin3d/large")
+    #get_large_data("/media/irvlab/新加卷1/4","/home/irvlab/heka/Project3_NeRF/code/camera_nerf/dataset/allin3d/large")
+    load_phase_data('./images.tif')
